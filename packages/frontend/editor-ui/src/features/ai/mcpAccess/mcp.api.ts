@@ -11,6 +11,10 @@ export type McpSettingsResponse = {
 	mcpAccessEnabled: boolean;
 };
 
+export type McpUserConfigResponse = {
+	jsonConfig: string | null;
+};
+
 export async function getMcpSettings(context: IRestApiContext): Promise<McpSettingsResponse> {
 	return await makeRestApiRequest(context, 'GET', '/mcp/settings');
 }
@@ -81,4 +85,15 @@ export async function fetchMcpEligibleWorkflows(
 	}
 
 	return await getFullApiResponse<WorkflowListItem[]>(context, 'GET', '/mcp/workflows', params);
+}
+
+export async function fetchMcpUserConfig(context: IRestApiContext): Promise<McpUserConfigResponse> {
+	return await makeRestApiRequest(context, 'GET', '/user-settings/mcp-config');
+}
+
+export async function updateMcpUserConfig(
+	context: IRestApiContext,
+	jsonConfig: string | null,
+): Promise<McpUserConfigResponse> {
+	return await makeRestApiRequest(context, 'PATCH', '/user-settings/mcp-config', { jsonConfig });
 }

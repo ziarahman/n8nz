@@ -3238,6 +3238,10 @@ export type NpsSurveyWaitingState = {
 };
 export type NpsSurveyState = NpsSurveyRespondedState | NpsSurveyWaitingState;
 
+export interface IMcpUserSettings {
+	jsonConfig?: string;
+}
+
 export interface IUserSettings {
 	isOnboarded?: boolean;
 	firstSuccessfulWorkflowId?: string;
@@ -3248,6 +3252,7 @@ export interface IUserSettings {
 	easyAIWorkflowOnboarded?: boolean;
 	userClaimedAiCredits?: boolean;
 	dismissedCallouts?: Record<string, boolean>;
+	mcpConfig?: IMcpUserSettings | null;
 }
 
 export interface IProcessedDataConfig {

@@ -3,7 +3,7 @@ import { useDocumentTitle } from '@/app/composables/useDocumentTitle';
 import { useToast } from '@/app/composables/useToast';
 import type { WorkflowListItem } from '@/Interface';
 import { useI18n } from '@n8n/i18n';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useMCPStore } from '@/features/ai/mcpAccess/mcp.store';
 import { useUsersStore } from '@/features/settings/users/users.store';
 import { useUIStore } from '@/app/stores/ui.store';
@@ -16,14 +16,22 @@ import MCPEmptyState from '@/features/ai/mcpAccess/components/MCPEmptyState.vue'
 import MCpHeaderActions from '@/features/ai/mcpAccess/components/header/MCPHeaderActions.vue';
 import WorkflowsTable from '@/features/ai/mcpAccess/components/tabs/WorkflowsTable.vue';
 import OAuthClientsTable from '@/features/ai/mcpAccess/components/tabs/OAuthClientsTable.vue';
-import { N8nHeading, N8nTabs, N8nTooltip, N8nButton, N8nText, N8nLink } from '@n8n/design-system';
+import {
+	N8nHeading,
+	N8nTabs,
+	N8nTooltip,
+	N8nButton,
+	N8nText,
+	N8nLink,
+	N8nInput,
+} from '@n8n/design-system';
 import type { TabOptions } from '@n8n/design-system';
 import { useMcp } from '@/features/ai/mcpAccess/composables/useMcp';
 import type { OAuthClientResponseDto } from '@n8n/api-types';
 import { useTelemetry } from '@/app/composables/useTelemetry';
 import { WORKFLOW_DESCRIPTION_MODAL_KEY } from '@/app/constants';
 
-type MCPTabs = 'workflows' | 'oauth';
+type MCPTabs = 'workflows' | 'personal' | 'oauth';
 
 const i18n = useI18n();
 const toast = useToast();
@@ -38,16 +46,33 @@ const uiStore = useUIStore();
 const mcpStatusLoading = ref(false);
 const selectedTab = ref<MCPTabs>('workflows');
 
-const tabs = ref<Array<TabOptions<MCPTabs>>>([
-	{
-		label: i18n.baseText('settings.mcp.tabs.workflows'),
-		value: 'workflows',
-	},
-	{
-		label: i18n.baseText('settings.mcp.tabs.oauth'),
-		value: 'oauth',
-	},
-]);
+const isOwner = computed(() => usersStore.isInstanceOwner);
+const isAdmin = computed(() => usersStore.isAdmin);
+
+const canToggleMCP = computed(() => isOwner.value || isAdmin.value);
+const canManageOAuth = computed(() => isOwner.value || isAdmin.value);
+
+const tabs = computed<Array<TabOptions<MCPTabs>>>(() => {
+	const baseTabs: Array<TabOptions<MCPTabs>> = [
+		{
+			label: i18n.baseText('settings.mcp.tabs.workflows'),
+			value: 'workflows',
+		},
+		{
+			label: i18n.baseText('settings.mcp.tabs.personal'),
+			value: 'personal',
+		},
+	];
+
+	if (canManageOAuth.value) {
+		baseTabs.push({
+			label: i18n.baseText('settings.mcp.tabs.oauth'),
+			value: 'oauth',
+		});
+	}
+
+	return baseTabs;
+});
 
 const workflowsLoading = ref(false);
 const availableWorkflows = ref<WorkflowListItem[]>([]);
@@ -55,24 +80,62 @@ const availableWorkflows = ref<WorkflowListItem[]>([]);
 const oAuthClientsLoading = ref(false);
 const connectedOAuthClients = ref<OAuthClientResponseDto[]>([]);
 
-const isOwner = computed(() => usersStore.isInstanceOwner);
-const isAdmin = computed(() => usersStore.isAdmin);
-
-const canToggleMCP = computed(() => isOwner.value || isAdmin.value);
+const personalConfig = ref('');
+const personalConfigLoading = ref(false);
+const personalConfigSaving = ref(false);
+const savedPersonalConfig = ref<string | null>(null);
 
 const showConnectWorkflowsButton = computed(() => {
-	return selectedTab.value === 'workflows' && availableWorkflows.value.length > 0;
+	return (
+		selectedTab.value === 'workflows' &&
+		mcpStore.mcpAccessEnabled &&
+		availableWorkflows.value.length > 0
+	);
 });
 
-const onTabSelected = async (tab: MCPTabs) => {
-	selectedTab.value = tab;
-	if (tab === 'workflows' && availableWorkflows.value.length === 0) {
+const normalizedPersonalConfig = computed(() => personalConfig.value.trim());
+
+const personalConfigError = computed(() => {
+	if (!normalizedPersonalConfig.value) {
+		return '';
+	}
+
+	try {
+		const parsed: unknown = JSON.parse(normalizedPersonalConfig.value);
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+			return i18n.baseText('settings.mcp.personal.config.error.invalidJson');
+		}
+	} catch {
+		return i18n.baseText('settings.mcp.personal.config.error.invalidJson');
+	}
+
+	return '';
+});
+
+const canSavePersonalConfig = computed(() => {
+	const currentValue = normalizedPersonalConfig.value;
+	const savedValue = (savedPersonalConfig.value ?? '').trim();
+	return !personalConfigSaving.value && !personalConfigError.value && currentValue !== savedValue;
+});
+
+const handleTabChange = async (tab: MCPTabs) => {
+	if (tab === 'workflows' && mcpStore.mcpAccessEnabled && availableWorkflows.value.length === 0) {
 		await fetchAvailableWorkflows();
-	} else if (tab === 'oauth' && connectedOAuthClients.value.length === 0) {
+	} else if (tab === 'personal' && savedPersonalConfig.value === null) {
+		await fetchPersonalConfig();
+	} else if (tab === 'oauth' && canManageOAuth.value && connectedOAuthClients.value.length === 0) {
 		await fetchoAuthCLients();
 		telemetry.track('User clicked connected clients tab');
 	}
 };
+
+watch(
+	selectedTab,
+	async (tab) => {
+		await handleTabChange(tab);
+	},
+	{ immediate: true },
+);
 
 const onToggleMCPAccess = async (enabled: boolean) => {
 	try {
@@ -127,14 +190,20 @@ const onUpdateDescription = (workflow: WorkflowListItem) => {
 };
 
 const onTableRefresh = async () => {
-	if (selectedTab.value === 'workflows') {
+	if (selectedTab.value === 'workflows' && mcpStore.mcpAccessEnabled) {
 		await fetchAvailableWorkflows();
+	} else if (selectedTab.value === 'personal') {
+		await fetchPersonalConfig();
 	} else if (selectedTab.value === 'oauth') {
 		await fetchoAuthCLients();
 	}
 };
 
 const fetchAvailableWorkflows = async () => {
+	if (!mcpStore.mcpAccessEnabled) {
+		return;
+	}
+
 	workflowsLoading.value = true;
 	try {
 		const workflows = await mcpStore.fetchWorkflowsAvailableForMCP(1, 200);
@@ -153,6 +222,9 @@ const onRefreshWorkflows = async () => {
 };
 
 const fetchoAuthCLients = async () => {
+	if (!canManageOAuth.value) {
+		return;
+	}
 	try {
 		oAuthClientsLoading.value = true;
 		const clients = await mcpStore.getAllOAuthClients();
@@ -162,6 +234,47 @@ const fetchoAuthCLients = async () => {
 	} finally {
 		setTimeout(() => {
 			oAuthClientsLoading.value = false;
+		}, LOADING_INDICATOR_TIMEOUT);
+	}
+};
+
+const fetchPersonalConfig = async () => {
+	try {
+		personalConfigLoading.value = true;
+		const config = await mcpStore.getUserMcpConfig();
+		savedPersonalConfig.value = config;
+		personalConfig.value = config ?? '';
+	} catch (error) {
+		toast.showError(error, i18n.baseText('settings.mcp.personal.config.error.fetch'));
+	} finally {
+		setTimeout(() => {
+			personalConfigLoading.value = false;
+		}, LOADING_INDICATOR_TIMEOUT);
+	}
+};
+
+const savePersonalConfig = async () => {
+	if (!canSavePersonalConfig.value) {
+		return;
+	}
+
+	try {
+		personalConfigSaving.value = true;
+		const updated = await mcpStore.setUserMcpConfig(
+			normalizedPersonalConfig.value ? normalizedPersonalConfig.value : null,
+		);
+		savedPersonalConfig.value = updated;
+		personalConfig.value = updated ?? '';
+		toast.showMessage({
+			type: 'success',
+			title: i18n.baseText('settings.mcp.personal.config.success.title'),
+			message: i18n.baseText('settings.mcp.personal.config.success.message'),
+		});
+	} catch (error) {
+		toast.showError(error, i18n.baseText('settings.mcp.personal.config.error.save'));
+	} finally {
+		setTimeout(() => {
+			personalConfigSaving.value = false;
 		}, LOADING_INDICATOR_TIMEOUT);
 	}
 };
@@ -194,12 +307,8 @@ const openConnectWorkflowsModal = () => {
 	telemetry.track('User clicked connect workflows from mcp settings');
 };
 
-onMounted(async () => {
+onMounted(() => {
 	documentTitle.set(i18n.baseText('settings.mcp'));
-	if (!mcpStore.mcpAccessEnabled) {
-		return;
-	}
-	await fetchAvailableWorkflows();
 });
 </script>
 <template>
@@ -229,19 +338,9 @@ onMounted(async () => {
 				@disable-mcp-access="onToggleMCPAccess(!mcpStore.mcpAccessEnabled)"
 			/>
 		</header>
-		<MCPEmptyState
-			v-if="!mcpStore.mcpAccessEnabled"
-			:disabled="!canToggleMCP"
-			:loading="mcpStatusLoading"
-			@turn-on-mcp="onToggleMCPAccess(true)"
-		/>
-		<div
-			v-if="mcpStore.mcpAccessEnabled"
-			:class="$style.container"
-			data-test-id="mcp-enabled-section"
-		>
+		<div :class="$style.container" data-test-id="mcp-enabled-section">
 			<header :class="$style['tabs-header']">
-				<N8nTabs :model-value="selectedTab" :options="tabs" @update:model-value="onTabSelected" />
+				<N8nTabs v-model="selectedTab" :options="tabs" />
 				<div :class="$style.actions">
 					<N8nButton
 						v-if="showConnectWorkflowsButton"
@@ -258,6 +357,7 @@ onMounted(async () => {
 							type="tertiary"
 							icon="refresh-cw"
 							:square="true"
+							:disabled="selectedTab === 'workflows' && !mcpStore.mcpAccessEnabled"
 							@click="onTableRefresh"
 						/>
 					</N8nTooltip>
@@ -265,7 +365,7 @@ onMounted(async () => {
 			</header>
 			<main>
 				<WorkflowsTable
-					v-if="selectedTab === 'workflows'"
+					v-if="selectedTab === 'workflows' && mcpStore.mcpAccessEnabled"
 					:data-test-id="'mcp-workflow-table'"
 					:workflows="availableWorkflows"
 					:loading="workflowsLoading"
@@ -274,8 +374,59 @@ onMounted(async () => {
 					@update-description="onUpdateDescription"
 					@refresh="onRefreshWorkflows"
 				/>
+				<MCPEmptyState
+					v-else-if="selectedTab === 'workflows'"
+					:disabled="!canToggleMCP"
+					:loading="mcpStatusLoading"
+					@turn-on-mcp="onToggleMCPAccess(true)"
+				/>
+				<section
+					v-else-if="selectedTab === 'personal'"
+					:class="$style['personal-config']"
+					data-test-id="mcp-personal-config"
+				>
+					<N8nText size="small" color="text-light">
+						{{ i18n.baseText('settings.mcp.personal.description') }}
+					</N8nText>
+					<div :class="$style['personal-config-input']">
+						<label :class="$style.label" for="mcp-personal-config-input">
+							{{ i18n.baseText('settings.mcp.personal.config.label') }}
+						</label>
+						<N8nInput
+							id="mcp-personal-config-input"
+							v-model="personalConfig"
+							type="textarea"
+							:rows="10"
+							:disabled="personalConfigLoading || personalConfigSaving"
+							:placeholder="i18n.baseText('settings.mcp.personal.config.placeholder')"
+							data-test-id="mcp-personal-config-input"
+						/>
+						<N8nText
+							v-if="personalConfigError"
+							size="small"
+							color="text-danger"
+							data-test-id="mcp-personal-config-error"
+						>
+							{{ personalConfigError }}
+						</N8nText>
+						<N8nText size="small" color="text-light">
+							{{ i18n.baseText('settings.mcp.personal.config.helper') }}
+						</N8nText>
+					</div>
+					<div :class="$style['personal-config-actions']">
+						<N8nButton
+							:label="i18n.baseText('settings.mcp.personal.config.save')"
+							size="small"
+							type="primary"
+							:loading="personalConfigSaving"
+							:disabled="!canSavePersonalConfig"
+							data-test-id="mcp-personal-config-save"
+							@click="savePersonalConfig"
+						/>
+					</div>
+				</section>
 				<OAuthClientsTable
-					v-else-if="selectedTab === 'oauth'"
+					v-else-if="selectedTab === 'oauth' && canManageOAuth"
 					:data-test-id="'mcp-oauth-clients-table'"
 					:clients="connectedOAuthClients"
 					:loading="oAuthClientsLoading"
@@ -320,5 +471,27 @@ onMounted(async () => {
 .actions {
 	display: flex;
 	gap: var(--spacing--2xs);
+}
+
+.personal-config {
+	display: flex;
+	flex-direction: column;
+	gap: var(--spacing--sm);
+}
+
+.personal-config-input {
+	display: flex;
+	flex-direction: column;
+	gap: var(--spacing--2xs);
+}
+
+.personal-config-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.label {
+	font-size: var(--font-size--sm);
+	color: var(--color--text--shade-1);
 }
 </style>

@@ -11,6 +11,8 @@ import {
 	fetchOAuthClients,
 	deleteOAuthClient,
 	fetchMcpEligibleWorkflows,
+	fetchMcpUserConfig,
+	updateMcpUserConfig,
 } from '@/features/ai/mcpAccess/mcp.api';
 import { computed, ref } from 'vue';
 import { useSettingsStore } from '@/app/stores/settings.store';
@@ -25,6 +27,7 @@ export const useMCPStore = defineStore(MCP_STORE, () => {
 	const currentUserMCPKey = ref<ApiKey | null>(null);
 	const oauthClients = ref<OAuthClientResponseDto[]>([]);
 	const connectPopoverOpen = ref(false);
+	const userMcpConfig = ref<string | null>(null);
 
 	const mcpAccessEnabled = computed(() => !!settingsStore.moduleSettings.mcp?.mcpAccessEnabled);
 
@@ -127,6 +130,18 @@ export const useMCPStore = defineStore(MCP_STORE, () => {
 		return await fetchMcpEligibleWorkflows(rootStore.restApiContext, options);
 	}
 
+	async function getUserMcpConfig(): Promise<string | null> {
+		const response = await fetchMcpUserConfig(rootStore.restApiContext);
+		userMcpConfig.value = response.jsonConfig;
+		return response.jsonConfig;
+	}
+
+	async function setUserMcpConfig(jsonConfig: string | null): Promise<string | null> {
+		const response = await updateMcpUserConfig(rootStore.restApiContext, jsonConfig);
+		userMcpConfig.value = response.jsonConfig;
+		return response.jsonConfig;
+	}
+
 	function openConnectPopover(): void {
 		connectPopoverOpen.value = true;
 	}
@@ -148,6 +163,9 @@ export const useMCPStore = defineStore(MCP_STORE, () => {
 		getAllOAuthClients,
 		removeOAuthClient,
 		getMcpEligibleWorkflows,
+		userMcpConfig,
+		getUserMcpConfig,
+		setUserMcpConfig,
 		connectPopoverOpen,
 		openConnectPopover,
 		closeConnectPopover,

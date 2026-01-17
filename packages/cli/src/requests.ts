@@ -319,3 +319,11 @@ export declare namespace NpsSurveyRequest {
 	// once some schema validation is added
 	type NpsSurveyUpdate = AuthenticatedRequest<{}, {}, unknown>;
 }
+
+// ----------------------------------
+//        /user-settings/mcp-config
+// ----------------------------------
+export declare namespace McpUserConfigRequest {
+	type Get = AuthenticatedRequest<{}, { jsonConfig: string | null }>;
+	type Update = AuthenticatedRequest<{}, { jsonConfig: string | null }, unknown>;
+}

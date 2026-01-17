@@ -2431,7 +2431,7 @@
 	"settings.mcp.tabs.oauth": "Connected clients",
 	"settings.mcp.personal.description": "Save your own MCP server JSON configuration here to reuse it when creating workflows.",
 	"settings.mcp.personal.config.label": "Personal MCP configuration",
-	"settings.mcp.personal.config.placeholder": "{ \"mcpServers\": { \"my-server\": { \"url\": \"https://example.com/mcp\" } } }",
+	"settings.mcp.personal.config.placeholder": "'{ \"mcpServers\": { \"my-server\": { \"url\": \"https://example.com/mcp\" } } }'",
 	"settings.mcp.personal.config.helper": "Only valid JSON objects are accepted. Leave empty to clear your saved configuration.",
 	"settings.mcp.personal.config.save": "Save configuration",
 	"settings.mcp.personal.config.success.title": "Configuration saved",

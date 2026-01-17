@@ -3,7 +3,7 @@ import { useDocumentTitle } from '@/app/composables/useDocumentTitle';
 import { useToast } from '@/app/composables/useToast';
 import type { WorkflowListItem } from '@/Interface';
 import { useI18n } from '@n8n/i18n';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useMCPStore } from '@/features/ai/mcpAccess/mcp.store';
 import { useUsersStore } from '@/features/settings/users/users.store';
 import { useUIStore } from '@/app/stores/ui.store';
@@ -118,8 +118,7 @@ const canSavePersonalConfig = computed(() => {
 	return !personalConfigSaving.value && !personalConfigError.value && currentValue !== savedValue;
 });
 
-const onTabSelected = async (tab: MCPTabs) => {
-	selectedTab.value = tab;
+const handleTabChange = async (tab: MCPTabs) => {
 	if (tab === 'workflows' && mcpStore.mcpAccessEnabled && availableWorkflows.value.length === 0) {
 		await fetchAvailableWorkflows();
 	} else if (tab === 'personal' && savedPersonalConfig.value === null) {
@@ -129,6 +128,14 @@ const onTabSelected = async (tab: MCPTabs) => {
 		telemetry.track('User clicked connected clients tab');
 	}
 };
+
+watch(
+	selectedTab,
+	async (tab) => {
+		await handleTabChange(tab);
+	},
+	{ immediate: true },
+);
 
 const onToggleMCPAccess = async (enabled: boolean) => {
 	try {
@@ -300,12 +307,8 @@ const openConnectWorkflowsModal = () => {
 	telemetry.track('User clicked connect workflows from mcp settings');
 };
 
-onMounted(async () => {
+onMounted(() => {
 	documentTitle.set(i18n.baseText('settings.mcp'));
-	if (!mcpStore.mcpAccessEnabled) {
-		return;
-	}
-	await fetchAvailableWorkflows();
 });
 </script>
 <template>
@@ -337,7 +340,7 @@ onMounted(async () => {
 		</header>
 		<div :class="$style.container" data-test-id="mcp-enabled-section">
 			<header :class="$style['tabs-header']">
-				<N8nTabs :model-value="selectedTab" :options="tabs" @update:model-value="onTabSelected" />
+				<N8nTabs v-model="selectedTab" :options="tabs" />
 				<div :class="$style.actions">
 					<N8nButton
 						v-if="showConnectWorkflowsButton"

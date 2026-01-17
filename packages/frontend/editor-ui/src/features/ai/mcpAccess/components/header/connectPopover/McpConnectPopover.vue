@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from '@n8n/i18n';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { N8nButton, N8nPopover, N8nRadioButtons } from '@n8n/design-system';
 import MCPOAuthPopoverTab from '@/features/ai/mcpAccess/components/header/connectPopover/MCPOAuthPopoverTab.vue';
 import MCPAccessTokenPopoverTab from '@/features/ai/mcpAccess/components/header/connectPopover/MCPAccessTokenPopoverTab.vue';
@@ -8,11 +8,13 @@ import { useRootStore } from '@n8n/stores/useRootStore';
 import { useTelemetry } from '@/app/composables/useTelemetry';
 import { useMCPStore } from '@/features/ai/mcpAccess/mcp.store';
 import { MCP_ENDPOINT, MCP_CONNECT_POPOVER_WIDTH } from '@/features/ai/mcpAccess/mcp.constants';
+import { useUsersStore } from '@/features/settings/users/users.store';
 
 const i18n = useI18n();
 const telemetry = useTelemetry();
 const rootStore = useRootStore();
 const mcpStore = useMCPStore();
+const usersStore = useUsersStore();
 
 const props = defineProps<{
 	disabled?: boolean;
@@ -23,14 +25,38 @@ const TABS = {
 	OAUTH: 'oauth',
 };
 
-const tabItems = ref([
-	{ value: TABS.OAUTH, label: i18n.baseText('settings.mcp.connectPopover.tab.oauth') },
-	{ value: TABS.ACCESS_TOKEN, label: i18n.baseText('settings.mcp.connectPopover.tab.accessToken') },
-]);
+const canManageOAuth = computed(() => usersStore.isAdmin || usersStore.isInstanceOwner);
+const tabItems = computed(() => {
+	const items = [
+		{
+			value: TABS.ACCESS_TOKEN,
+			label: i18n.baseText('settings.mcp.connectPopover.tab.accessToken'),
+		},
+	];
+
+	if (canManageOAuth.value) {
+		items.unshift({
+			value: TABS.OAUTH,
+			label: i18n.baseText('settings.mcp.connectPopover.tab.oauth'),
+		});
+	}
+
+	return items;
+});
 
 const serverUrl = ref(`${rootStore.urlBaseEditor}${MCP_ENDPOINT}`);
 
 const activeTab = ref(tabItems.value[0].value);
+
+watch(
+	tabItems,
+	(newItems) => {
+		if (!newItems.some((item) => item.value === activeTab.value)) {
+			activeTab.value = newItems[0].value;
+		}
+	},
+	{ immediate: true },
+);
 
 const handlePopoverOpenChange = (isOpen: boolean) => {
 	if (isOpen) {
@@ -106,7 +132,7 @@ watch(
 					</header>
 					<main>
 						<MCPOAuthPopoverTab
-							v-if="activeTab === TABS.OAUTH"
+							v-if="activeTab === TABS.OAUTH && canManageOAuth"
 							:server-url="serverUrl"
 							@copy="trackCopyEvent({ item: 'server-url', source: 'oauth-tab' })"
 						/>
